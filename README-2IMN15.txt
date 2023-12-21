@@ -75,7 +75,7 @@ In seperate terminals, use the commands
 
    java -jar flow-control/target/flow-control-2.0.0-SNAPSHOT-jar-with-dependencies.jar -lp=5687 -slp=5688 -wp=8084
 
-   java -jar iot-client/target/iot-client-2.0.0-SNAPSHOT-jar-with-dependencies.jar -n ep-name [-presence] [-luminaire] [-demand] [-battery] [-solar]
+   java -jar iot-client/target/iot-client-2.0.0-SNAPSHOT-jar-with-dependencies.jar -n ep-name -presence -luminaire -demand -battery -solar
 
    java -jar energy-market/target/energy-market-2.0.0-SNAPSHOT-jar-with-dependencies.jar -energy-url=coap://localhost:5685 -flow-url=coap://localhost:5687 
 
