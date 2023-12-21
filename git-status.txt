@@ -12,7 +12,7 @@ Changes not staged for commit:
 	modified:   leshan-core-demo/src/main/java/org/eclipse/leshan/core/demo/LwM2mDemoConstant.java
 	modified:   leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/ClientServlet.java
 	modified:   leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/EventServlet.java
-	modified:   pom.xml
+	modified:   pom.xml 
 
 Untracked files:
   (use "git add <file>..." to include in what will be committed)
