@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LWM2M  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openmobilealliance.org/tech/profiles/LWM2M.xsd">
+  <Object ObjectType="MODefinition">
+    <Name>Solar Panel</Name>
+    <Description1>Solar Panel</Description1>
+    <ObjectID>33004</ObjectID>
+    <ObjectURN>urn:oma:lwm2m:x:33004</ObjectURN>
+    <LWM2MVersion>1.0</LWM2MVersion>
+                <ObjectVersion>1.0</ObjectVersion>
+    <MultipleInstances>Multiple</MultipleInstances>
+    <Mandatory>Mandatory</Mandatory>
+    <Resources>
+      <Item ID="30011">
+        <Name>Available energy</Name>
+        <Operations>R</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>kWh</Units>
+        <Description>Expected energy production for current time interval</Description>
+      </Item>
+    </Resources>
+    <Description2></Description2>
+  </Object>
+</LWM2M>

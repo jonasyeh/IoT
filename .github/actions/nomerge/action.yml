@@ -1,0 +1,25 @@
+name: "Check No Merge commit"
+description: "Check PR does not contains any merge commit"
+
+inputs:
+  build_status_filename:  
+    description: 'Path to build status properties file'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Check For Merge Commit
+    id: main
+    uses: voxie-actions/no-merge-commits@v1.0.0
+
+    # Store Step status in Build Status Properties file
+  - name: Store Step Status
+    if: always()
+    # unstrusted action use commit ID instead of version 
+    uses: GuillaumeFalourd/write-java-properties-file@c6762204aa02d62718ed285bca4cbcc400c65a10 #v1
+    with:
+      file_path: ${{inputs.build_status_filename}}
+      property: ${{github.action}}
+      value: ${{steps.main.outcome}}

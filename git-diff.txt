@@ -1,0 +1,931 @@
+diff --git a/leshan-client-cf/src/main/java/org/eclipse/leshan/client/californium/CaliforniumEndpointsManager.java b/leshan-client-cf/src/main/java/org/eclipse/leshan/client/californium/CaliforniumEndpointsManager.java
+index 701919a2..f6092358 100644
+--- a/leshan-client-cf/src/main/java/org/eclipse/leshan/client/californium/CaliforniumEndpointsManager.java
++++ b/leshan-client-cf/src/main/java/org/eclipse/leshan/client/californium/CaliforniumEndpointsManager.java
+@@ -24,6 +24,11 @@ import java.security.cert.X509Certificate;
+ import java.util.ArrayList;
+ import java.util.Collection;
+ import java.util.List;
++import java.util.Iterator;
++import java.util.Map;
++import java.util.Map.Entry;
++import java.util.HashMap;
++
+ import java.util.concurrent.TimeUnit;
+ 
+ import org.eclipse.californium.core.CoapServer;
+@@ -77,6 +82,9 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+ 
+     protected boolean started = false;
+ 
++    protected Map<Long,ServerIdentity> serverMap;
++    protected Map<Long,CoapEndpoint> endpointMap;
++    
+     protected ServerIdentity currentServer;
+     protected CoapEndpoint currentEndpoint;
+ 
+@@ -102,6 +110,8 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+         this.dtlsConfigbuilder = dtlsConfigBuilder;
+         this.trustStore = trustStore;
+         this.endpointFactory = endpointFactory;
++	this.endpointMap = new HashMap<Long,CoapEndpoint>();
++	this.serverMap = new HashMap<Long,ServerIdentity>();
+     }
+ 
+     public void setCoapServer(CoapServer coapServer) {
+@@ -111,10 +121,11 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+     @Override
+     public synchronized ServerIdentity createEndpoint(ServerInfo serverInfo, boolean clientInitiatedOnly) {
+         // Clear previous endpoint
+-        if (currentEndpoint != null) {
+-            coapServer.getEndpoints().remove(currentEndpoint);
+-            currentEndpoint.destroy();
+-        }
++	// 2IMN15 : multiple endpoints.
++        //if (currentEndpoint != null) {
++        //    coapServer.getEndpoints().remove(currentEndpoint);
++        //    currentEndpoint.destroy();
++	//}
+ 
+         // Create new endpoint
+         Identity serverIdentity;
+@@ -315,6 +326,9 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+                 throw new RuntimeException("Unable to start endpoint", e);
+             }
+         }
++	Long serverid = currentServer.getId();
++	serverMap.put(serverid,currentServer);
++	endpointMap.put(serverid, currentEndpoint);
+         return currentServer;
+     }
+ 
+@@ -325,14 +339,19 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+             return null;
+         else {
+             // TODO support multi server
++	    // 2IMN15 :  multiple servers.
+             if (serverInfo.size() > 1) {
+                 LOG.warn(
+-                        "CaliforniumEndpointsManager support only connection to 1 LWM2M server, first server will be used from the server list of {}",
++                        "CaliforniumEndpointsManager only supported connection to 1 LWM2M server, try to add all from the server list of {}",
+                         serverInfo.size());
+             }
++            Collection<ServerIdentity> servers = new ArrayList<>(serverInfo.size());
++	    Iterator<? extends ServerInfo> it = serverInfo.iterator();
++	    while (it.hasNext()) {
++		ServerInfo server = it.next();
++		servers.add(createEndpoint(server, clientInitiatedOnly));
++	    }
+             ServerInfo firstServer = serverInfo.iterator().next();
+-            Collection<ServerIdentity> servers = new ArrayList<>(1);
+-            servers.add(createEndpoint(firstServer, clientInitiatedOnly));
+             return servers;
+         }
+     }
+@@ -362,10 +381,14 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+     @Override
+     public synchronized void forceReconnection(ServerIdentity server, boolean resume) {
+         // TODO support multi server
+-        if (server == null || !server.equals(currentServer))
++	// 2IMN15 : get server and related endpoint from the map.
++        if (server == null)
+             return;
+ 
+-        Connector connector = currentEndpoint.getConnector();
++	Long sid = server.getId();
++	if (!serverMap.containsKey(sid))  return;   // Unknown server.
++	CoapEndpoint ep = endpointMap.get(sid);
++        Connector connector = ep.getConnector();
+         if (connector instanceof DTLSConnector) {
+             if (resume) {
+                 LOG.info("Clear DTLS session for resumption for server {}", server.getUri());
+@@ -380,9 +403,16 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+ 
+     public synchronized Endpoint getEndpoint(ServerIdentity server) {
+         // TODO support multi server
+-        if (server != null && server.equals(currentServer) && currentEndpoint.isStarted())
+-            return currentEndpoint;
+-        return null;
++	// 2IMN15 : used endpoint map.
++	if (server == null)  return null;
++	Long sid = server.getId();
++	CoapEndpoint ep = endpointMap.get(sid);
++	if (ep != null && ep.isStarted())
++	    return ep;
++	return null;
++        // if (server != null && server.equals(currentServer) && currentEndpoint.isStarted())
++        //    return currentEndpoint;
++        // return null;
+     }
+ 
+     public synchronized ServerIdentity getServerIdentity(Endpoint endpoint, InetSocketAddress serverAddress,
+@@ -393,28 +423,36 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+         // - we create 1 CoAP endpoint by server.
+         // - the dtls configuration ensure that only server with expected credential is able to talk.
+         // (see https://github.com/eclipse/leshan/issues/992 for more details)
+-        if (endpoint != null && endpoint.equals(currentEndpoint) && currentEndpoint.isStarted()) {
++	if (endpoint == null) return null;
++	for (Entry<Long,CoapEndpoint> ep : endpointMap.entrySet()) {
++	    if (endpoint.equals(ep.getValue())) {
++		Long sid = ep.getKey();
++		return serverMap.get(sid);
++	    }
++	}
++	return null;
++	//if (endpoint != null && endpoint.equals(currentEndpoint) && currentEndpoint.isStarted()) {
+             // For UDP (not secure) endpoint we also check socket address as anybody send data to this kind of endpoint.
+-            if (currentEndpoint.getConnector().getProtocol() == "UDP"
+-                    && !currentServer.getIdentity().getPeerAddress().equals(serverAddress)) {
+-                return null;
+-            }
++            //if (currentEndpoint.getConnector().getProtocol() == "UDP"
++            //        && !currentServer.getIdentity().getPeerAddress().equals(serverAddress)) {
++            //    return null;
++            //}
+             // For OSCORE, be sure OSCORE is used.
+-            if (currentServer.getIdentity().isOSCORE()) {
+-                Identity foreignPeerIdentity = EndpointContextUtil.extractIdentity(endpointContext);
+-                if (!foreignPeerIdentity.isOSCORE() //
+-                        // we also check OscoreIdentity but this is probably not useful
++            //if (currentServer.getIdentity().isOSCORE()) {
++            //    Identity foreignPeerIdentity = EndpointContextUtil.extractIdentity(endpointContext);
++            //    if (!foreignPeerIdentity.isOSCORE() //
++            //            // we also check OscoreIdentity but this is probably not useful
+                         // because we are using static OSCOREstore which holds only 1 OscoreParameter,
+                         // so if the request was successfully decrypted and OSCORE is used, this MUST be the right
+                         // server.
+-                        || !foreignPeerIdentity.getOscoreIdentity()
+-                                .equals(currentServer.getIdentity().getOscoreIdentity())) {
+-                    return null;
+-                }
+-            }
+-            return currentServer;
+-        }
+-        return null;
++	//            || !foreignPeerIdentity.getOscoreIdentity()
++	//                      .equals(currentServer.getIdentity().getOscoreIdentity())) {
++	//          return null;
++	//      }
++	//  }
++	//  return currentServer;
++        //}
++        //return null;
+     }
+ 
+     @Override
+@@ -424,9 +462,10 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+         started = true;
+ 
+         // we don't have any endpoint so nothing to start
+-        if (currentEndpoint == null)
+-            return;
+-
++        //if (currentEndpoint == null)
++        //    return;
++	if (endpointMap.size()<1)
++	    return;
+         coapServer.start();
+     }
+ 
+@@ -437,9 +476,11 @@ public class CaliforniumEndpointsManager implements EndpointsManager {
+         started = false;
+ 
+         // If we have no endpoint this means that we never start coap server
+-        if (currentEndpoint == null)
+-            return;
+-
++        //if (currentEndpoint == null)
++        //    return;
++	if (endpointMap.size()<1)
++	    return;
++	
+         coapServer.stop();
+     }
+ 
+diff --git a/leshan-client-core/src/main/java/org/eclipse/leshan/client/engine/DefaultRegistrationEngine.java b/leshan-client-core/src/main/java/org/eclipse/leshan/client/engine/DefaultRegistrationEngine.java
+index 0e6b016f..d4b9cc35 100644
+--- a/leshan-client-core/src/main/java/org/eclipse/leshan/client/engine/DefaultRegistrationEngine.java
++++ b/leshan-client-core/src/main/java/org/eclipse/leshan/client/engine/DefaultRegistrationEngine.java
+@@ -21,6 +21,7 @@ import java.util.EnumSet;
+ import java.util.List;
+ import java.util.Map;
+ import java.util.Map.Entry;
++import java.util.HashMap;
+ import java.util.Set;
+ import java.util.TreeMap;
+ import java.util.concurrent.ConcurrentHashMap;
+@@ -719,15 +720,49 @@ public class DefaultRegistrationEngine implements RegistrationEngine {
+                 cancelUpdateTask(true);
+                 if (ALL.equals(server)) {
+                     // TODO support multi server
+-                    Entry<String, ServerIdentity> currentServer = registeredServers.entrySet().iterator().next();
+-                    if (currentServer != null) {
+-                        scheduleUpdate(currentServer.getValue(), currentServer.getKey(), registrationUpdate, NOW);
+-                    }
++		    // Get list of servers.
++		    Map <Long,DmServerInfo> dmServers = ServersInfoExtractor.getInfo(objectEnablers).deviceManagements;
++		    if (registeredServers.size() < dmServers.size()) {
++			// The list of servers is larger than the list
++			// of registered servers. Register at the
++			// missing servers.
++			int count=1;
++			Map <Long,ServerIdentity> knownServer = new HashMap<Long,ServerIdentity>();
++			for (Entry<String,ServerIdentity> regServer : registeredServers.entrySet()) {
++			    ServerIdentity regServ = regServer.getValue();
++			    System.out.println(" regServer: " + regServ.getId());
++			    knownServer.put(regServ.getId(), regServer.getValue());
++			}
++			for (Entry<Long,DmServerInfo> dmServer : dmServers.entrySet()) {
++			    DmServerInfo dmServ = dmServer.getValue();
++			    Long id = dmServer.getKey();
++			    System.out.println(" dmServer: " + dmServ.serverId + ", key: " + id);
++			    if (knownServer.get(dmServ.serverId) == null) {
++				System.out.println("   new server. register it.");
++				scheduleRegistrationTask(endpointsManager.createEndpoint(dmServ, isClientInitiatedOnly()), NOW+count*2345);
++				count++;
++
++			    }
++			}
++		    } else if (!registeredServers.isEmpty()) {
++			int count=1;
++			for (Entry<String, ServerIdentity> registeredServer : registeredServers.entrySet()) {
++			    scheduleUpdate(registeredServer.getValue(),
++					   registeredServer.getKey(),
++					   new RegistrationUpdate(),
++					   NOW+count*2345);
++			    count++;
++			}
++		    }
+                 } else {
+                     String registrationId = getRegistrationId(server);
+                     if (registrationId != null) {
+                         scheduleUpdate(server, registrationId, registrationUpdate, NOW);
+-                    }
++                    } else {
++			// The given server is not registered yet.
++			// Instead of update, register it.
++			scheduleRegistrationTask(server, NOW);
++		    }
+                 }
+             }
+         }
+diff --git a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/LeshanClientDemo.java b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/LeshanClientDemo.java
+index d521b28a..a2a61e9d 100644
+--- a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/LeshanClientDemo.java
++++ b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/LeshanClientDemo.java
+@@ -215,15 +215,46 @@ public class LeshanClientDemo {
+                 if (oscoreObjectInstanceId != null) {
+                     initializer.setInstancesForObject(SECURITY, oscoreOnly(cli.main.url, 123, oscoreObjectInstanceId));
+                 } else {
+-                    initializer.setInstancesForObject(SECURITY, noSec(cli.main.url, 123));
++                    initializer.setInstancesForObject(SECURITY, noSec(cli.main.url, 123), noSec("coap://localhost:5685", 124));
+                 }
+-                initializer.setInstancesForObject(SERVER, new Server(123, cli.main.lifetimeInSec));
++                initializer.setInstancesForObject(SERVER, new Server(123, cli.main.lifetimeInSec), new Server(124, cli.main.lifetimeInSec));
+             }
+         }
+         initializer.setInstancesForObject(DEVICE, new MyDevice());
+         initializer.setInstancesForObject(LOCATION, locationInstance);
+-        initializer.setInstancesForObject(OBJECT_ID_TEMPERATURE_SENSOR, new RandomTemperatureSensor());
+-        initializer.setInstancesForObject(OBJECT_ID_LWM2M_TEST_OBJECT, new LwM2mTestObject());
++        // initializer.setInstancesForObject(OBJECT_ID_TEMPERATURE_SENSOR, new RandomTemperatureSensor());
++        // initializer.setInstancesForObject(OBJECT_ID_LWM2M_TEST_OBJECT, new LwM2mTestObject());
++
++	//
++	// 2IMN15: Create objects and handle command line parameters.
++	//
++	if (cli.presencedetector.enabled) {
++	    // Create the object.
++	    PresenceDetector pdetect = new PresenceDetector();
++	    // Adjust resources of the object.
++	    // Register the object to the system.
++	    initializer.setInstancesForObject(PresenceDetector.OBJECT_ID,
++					      pdetect);
++	}
++	if (cli.luminaire.enabled) {
++	    // Create the object.
++	    Luminaire luminaire = new Luminaire();
++	    // Adjust resource of the object based on parameters.
++	    luminaire.configure(cli.luminaire.type, cli.luminaire.peakpower);
++	    // Register the object to the system.
++	    initializer.setInstancesForObject(Luminaire.OBJECT_ID, luminaire);
++	}
++	if (cli.demandresponse.enabled) {
++	    // Create the object.
++	    DemandResponse demand = new DemandResponse();
++	    // Adjust resource of the object based on parameters
++	    demand.configure(cli.demandresponse.maxpower);
++	    // Register the object to the system.
++	    initializer.setInstancesForObject(DemandResponse.OBJECT_ID, demand);
++	}
++	//
++	// End of 2IMN15 modification
++	//
+ 
+         List<LwM2mObjectEnabler> enablers = initializer.createAll();
+ 
+diff --git a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/LeshanClientDemoCLI.java b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/LeshanClientDemoCLI.java
+index db9c2bb8..bbd5cac4 100644
+--- a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/LeshanClientDemoCLI.java
++++ b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/LeshanClientDemoCLI.java
+@@ -159,6 +159,83 @@ public class LeshanClientDemoCLI implements Runnable {
+         public boolean supportOldFormat;
+     }
+ 
++    //
++    // 2IMN15: specification of command line parameters.
++    //
++
++    /* ********************************** Presence Detector ******************************** */
++    @ArgGroup(validate = false,
++              heading = "%n@|bold,underline Object Presence Detector Options|@ %n%n"//
++                      + "@|italic " //
++                      + "Configure a presence detector." //
++                      + "|@%n%n")
++    public PresenceSection presencedetector = new PresenceSection();
++
++    public static class PresenceSection {
++        @Option(names = { "-presence", "--enable-presence" },
++                description = { //
++                        "Enable a presence detection object.", //
++                        "Just a flag" })
++        public boolean enabled;
++    }
++
++    /* ********************************** Luminaire ******************************** */
++    @ArgGroup(validate = false,
++              heading = "%n@|bold,underline Object Luminaire Options|@ %n%n"//
++                      + "@|italic " //
++                      + "Configure the luminaire." //
++                      + "|@%n%n")
++    public LuminaireSection luminaire = new LuminaireSection();
++
++    public static class LuminaireSection {
++        @Option(names = { "-luminaire", "--enable-luminaire" },
++                description = { //
++                        "Enable a luminaire object.", //
++                        "Just a flag." })
++	public boolean enabled;
++
++	@Option(names = { "-lum", "--luminaire-type" },
++		defaultValue = "LED",
++                description = { //
++                        "The type of luminaire (LED, Halogen).", //
++                        "A string" })
++        public String type;
++
++	@Option(names = { "-pp", "--luminaire-power" },
++		defaultValue = "15",
++                description = { //
++                        "The peak power of the luminaire in Watt.", //
++                        "An integer" })
++	public Integer peakpower;
++    }
++
++    /* ********************************** Demand Response ******************************** */
++    @ArgGroup(validate = false,
++              heading = "%n@|bold,underline Object Demand Response Options|@ %n%n"//
++                      + "@|italic " //
++                      + "Configure the demand response function." //
++                      + "|@%n%n")
++
++    public DemandSection demandresponse = new DemandSection();
++
++    public static class DemandSection {
++        @Option(names = { "-demand", "--enable-demand" },
++                description = { //
++                        "Enable a demand response object.", //
++                        "Just a flag" })
++        public boolean enabled;
++
++	@Option(names = { "-maxp", "--demand-max" },
++		defaultValue = "300",
++                description = { //
++                        "The maximum power for a room in Watt.", //
++                        "An integer" })
++	public Integer maxpower;
++    }
++    //
++    // End of 2IMN15 modification
++    //
++
+     /* ********************************** Location Section ******************************** */
+     @ArgGroup(validate = false,
+               heading = "%n@|bold,underline Object Location Options|@ %n%n"//
+diff --git a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/interactive/InteractiveCommands.java b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/interactive/InteractiveCommands.java
+index 9662a764..6a50870f 100644
+--- a/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/interactive/InteractiveCommands.java
++++ b/leshan-client-demo/src/main/java/org/eclipse/leshan/client/demo/cli/interactive/InteractiveCommands.java
+@@ -16,6 +16,7 @@ package org.eclipse.leshan.client.demo.cli.interactive;
+ 
+ import java.util.List;
+ import java.util.Map;
++import java.util.Map.Entry;
+ 
+ import org.eclipse.leshan.client.californium.LeshanClient;
+ import org.eclipse.leshan.client.demo.MyLocation;
+@@ -35,6 +36,8 @@ import org.eclipse.leshan.client.send.ManualDataSender;
+ import org.eclipse.leshan.client.send.NoDataException;
+ import org.eclipse.leshan.client.send.SendService;
+ import org.eclipse.leshan.client.servers.ServerIdentity;
++import org.eclipse.leshan.client.servers.DmServerInfo;
++import org.eclipse.leshan.client.servers.ServersInfoExtractor;
+ import org.eclipse.leshan.core.LwM2m.Version;
+ import org.eclipse.leshan.core.LwM2mId;
+ import org.eclipse.leshan.core.demo.cli.converters.ContentFormatConverter;
+@@ -230,7 +233,10 @@ public class InteractiveCommands extends JLineInteractiveCommands implements Run
+ 
+         @Override
+         public void run() {
+-            parent.client.triggerRegistrationUpdate();
++	    // Map<Long,DmServerInfo> devMans = ServersInfoExtractor.getInfo(parent.client.objectEnablers).deviceManagements;
++	    // for (Entry<Long,DmServerInfo> devMan : devMans.entrySet()) {
++		parent.client.triggerRegistrationUpdate();
++	    // }
+         }
+     }
+ 
+diff --git a/leshan-core-demo/src/main/java/org/eclipse/leshan/core/demo/LwM2mDemoConstant.java b/leshan-core-demo/src/main/java/org/eclipse/leshan/core/demo/LwM2mDemoConstant.java
+index 7a96a8fa..08865b92 100644
+--- a/leshan-core-demo/src/main/java/org/eclipse/leshan/core/demo/LwM2mDemoConstant.java
++++ b/leshan-core-demo/src/main/java/org/eclipse/leshan/core/demo/LwM2mDemoConstant.java
+@@ -58,5 +58,17 @@ public class LwM2mDemoConstant {
+             "10346.xml", "10347.xml", "10348.xml", "10349.xml", "10350.xml", "10351.xml", "10352.xml", "10353.xml",
+             "10354.xml", "10355.xml", "10356.xml", "10357.xml", "10358.xml", "10359.xml", "10360.xml", "10361.xml",
+             "10362.xml", "10363.xml", "10364.xml", "10365.xml", "10366.xml", "10368.xml", "10369.xml", "10371.xml",
+-            "10374.xml", "10375.xml", "18830.xml", "18831.xml" };
++            "10374.xml", "10375.xml", "18830.xml", "18831.xml",
++	    "33000.xml", // 2IMN15:  Presence Detector
++	    "33001.xml", // 2IMN15:  Luminaire
++	    "33002.xml", // 2IMN15:  Demand Response
++	    "33003.xml", // 2IMN15:  Budget Allocation
++	    "33004.xml", // 2IMN15:  Solar Panel
++	    "33005.xml", // 2IMN15:  Battery
++	    "33006.xml", // 2IMN15:  Energy Marketplace
++	    "33007.xml", // 2IMN15:  Bid
++	    "33008.xml", // 2IMN15:  Offer
++	    "33009.xml", // 2IMN15:  Wallet
++	    "33010.xml"  // 2IMN15:  Match
++    };
+ }
+diff --git a/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/ClientServlet.java b/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/ClientServlet.java
+index 1b0c927e..493a2ed5 100644
+--- a/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/ClientServlet.java
++++ b/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/ClientServlet.java
+@@ -25,6 +25,9 @@ import java.util.HashMap;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Map.Entry;
++import java.util.Set;
++import java.io.PrintWriter;
+ 
+ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServlet;
+@@ -42,7 +45,11 @@ import org.eclipse.leshan.core.node.LwM2mNode;
+ import org.eclipse.leshan.core.node.LwM2mObjectInstance;
+ import org.eclipse.leshan.core.node.LwM2mPath;
+ import org.eclipse.leshan.core.node.LwM2mSingleResource;
++import org.eclipse.leshan.core.node.LwM2mResource;
+ import org.eclipse.leshan.core.node.codec.CodecException;
++import org.eclipse.leshan.core.observation.CompositeObservation;
++import org.eclipse.leshan.core.observation.Observation;
++import org.eclipse.leshan.core.observation.SingleObservation;
+ import org.eclipse.leshan.core.request.ContentFormat;
+ import org.eclipse.leshan.core.request.CreateRequest;
+ import org.eclipse.leshan.core.request.DeleteRequest;
+@@ -89,6 +96,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
+ import com.fasterxml.jackson.databind.ObjectMapper;
+ import com.fasterxml.jackson.databind.module.SimpleModule;
+ 
++import org.course.IoT;
++
+ /**
+  * Service HTTP REST API calls.
+  */
+@@ -110,12 +119,17 @@ public class ClientServlet extends HttpServlet {
+     private static final long serialVersionUID = 1L;
+ 
+     private final LeshanServer server;
++
+     private final ObjectMapper mapper;
+     private final LwM2mAttributeParser attributeParser;
+ 
+     public ClientServlet(LeshanServer server) {
+         this.server = server;
+-
++	//
++	// 2IMN15: set server object and initialize state.
++	//
++	IoT.Initialize(server);
++	
+         mapper = new ObjectMapper();
+         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+         SimpleModule module = new SimpleModule();
+@@ -554,6 +568,348 @@ public class ClientServlet extends HttpServlet {
+         }
+     }
+ 
++    /*
++    private static void ShowSystemState()
++    {
++	// Method to show the system state.
++	// It is called when something changed.
++    }
++
++    private static void setDimLevels()
++    {
++	// Compute dim settings for all luminaires
++	int newDimLevel = 0;
++	if (maxPowerUsage == 0) {
++	    // No luminaires.
++	    newDimLevel = 100;
++	} else {
++	    newDimLevel = powerBudget*100 / maxPowerUsage;
++	    if (newDimLevel > 100) newDimLevel = 100;
++	}
++	// If needed, update luminaires
++	if (newDimLevel != currentDimLevel) {
++	    // Adjust all luminaires.
++	    for (Map.Entry<String,LuminaireState> entry : luminaireStates.entrySet()) {
++		// entry.getKey()  is LwM2mEntrypoint.
++		// entry.getValue() is LuminaireState.
++		Registration regis = lwServer.getRegistrationService().getByEndpoint(entry.getKey());
++		writeInteger(regis, 33001, 0, 30004, newDimLevel);
++	    }
++	}
++	currentDimLevel = newDimLevel;
++    }
++    
++    private static void setLuminaires(boolean on)
++    {
++	// Adjust all luminaires.
++	for (Map.Entry<String,LuminaireState> entry : luminaireStates.entrySet()) {
++	    // entry.getKey()  is LwM2mEntrypoint.
++	    // entry.getValue() is LuminaireState.
++	    Registration regis = lwServer.getRegistrationService().getByEndpoint(entry.getKey());
++	    writeBoolean(regis, 33001, 0, 30000, on);
++	}
++    }
++    
++    private static int readInteger(Registration registration, int objectId, int instanceId, int resourceId)
++    {
++        try {
++	    ReadRequest request = new ReadRequest(objectId, instanceId, resourceId);
++                ReadResponse cResponse = lwServer.send(registration, request, 5000);
++                if (cResponse.isSuccess()) {
++                   String sValue = ((LwM2mResource)cResponse.getContent()).getValue().toString();
++                   try {
++                      int iValue = Integer.parseInt(((LwM2mResource)cResponse.getContent()).getValue().toString());
++                      return iValue;
++                   }
++                   catch (Exception e) {
++                   }
++                   float fValue = Float.parseFloat(((LwM2mResource)cResponse.getContent()).getValue().toString());
++                   return (int)fValue;
++                } else {
++                   return 0;
++                }
++        }
++        catch (Exception e) {
++                System.out.println(e.getMessage());
++                System.out.println("exception in readInteger");
++                return 0;
++        }
++    }
++
++    private static String readString(Registration registration, int objectId, int instanceId, int resourceId)
++    {
++        try {
++	    ReadRequest request = new ReadRequest(objectId, instanceId, resourceId);
++                ReadResponse cResponse = lwServer.send(registration, request, 1000);
++                if (cResponse.isSuccess()) {
++                   String value = ((LwM2mResource)cResponse.getContent()).getValue().toString();
++                   return value;
++                } else {
++                   return "";
++                }
++        }
++        catch (Exception e) {
++                System.out.println(e.getMessage());
++                System.out.println("exception in readString");
++                return "";
++        }
++    }
++
++    private static void writeInteger(Registration registration, int objectId, int instanceId, int resourceId, int value)
++    {
++	try {
++	    WriteRequest request = new WriteRequest(objectId, instanceId, resourceId, value);
++	    WriteResponse cResponse = lwServer.send(registration, request, 1000);
++	    if (cResponse.isSuccess()) {
++		System.out.println("writeInteger: Success");
++	    } else {
++		System.out.println("writeInteger: Failed, " + cResponse.toString());
++	    }
++	}
++	catch (Exception e) {
++	    System.out.println(e.getMessage());
++	    System.out.println("writeInteger: exception");
++	}
++    }
++
++    private static void writeString(Registration registration, int objectId, int instanceId, int resourceId, String value)
++    {
++	try {
++	    WriteRequest request = new WriteRequest(objectId, instanceId, resourceId, value);
++	    WriteResponse cResponse = lwServer.send(registration, request, 1000);
++	    if (cResponse.isSuccess()) {
++		System.out.println("writeString: Success");
++	    } else {
++		System.out.println("writeString: Failed" + cResponse.toString());
++	    }
++	}
++	catch (Exception e) {
++	    System.out.println(e.getMessage());
++	    System.out.println("writeString: exception");
++	}
++    }
++
++    private static void writeBoolean(Registration registration, int objectId, int instanceId, int resourceId, boolean value)
++    {
++	try {
++	    WriteRequest request = new WriteRequest(objectId, instanceId, resourceId, value);
++	    WriteResponse cResponse = lwServer.send(registration, request, 1000);
++	    if (cResponse.isSuccess()) {
++		System.out.println("writeBoolean: Success");
++	    } else {
++		System.out.println("writeBoolean: Failed" + cResponse.toString());
++	    }
++	}
++	catch (Exception e) {
++	    System.out.println(e.getMessage());
++	    System.out.println("writeBoolean: exception");
++	}
++    }
++
++    public static void handleRegistration(Registration registration)
++    {
++        // Check which objects are available.
++        Map<Integer,org.eclipse.leshan.core.LwM2m.Version> supportedObject = registration.getSupportedObject();
++        // Objects 33000 (Presence Detector) and 33001 (Luminaire).
++        int latitude=0;
++        int longitude=0;
++        if (supportedObject.get(33000) != null ||
++            supportedObject.get(33001) != null) {
++           // Either Presence Detector or Luminaire exist.
++           // Retrieve location information.
++           if (supportedObject.get(6) != null) {
++                // Retrieve location.
++                String latRes="/6/0/0";
++                String longRes = "/6/0/1";
++                latitude = readInteger(registration,6,0,0);
++                longitude = readInteger(registration, 6,0,1);
++           }
++        } else {
++           System.out.println("new registration does not contain Presence Detector or Luminaire.");
++        }
++        if (supportedObject.get(33000) != null) {
++           System.out.println("Presence Detector");
++           PresenceDetectorState pdState = new PresenceDetectorState();
++           // A presence detector.
++           // Retrieve statis fields
++           pdState.latitude = latitude;
++           pdState.longitude = longitude;
++           // Instead of the code above, retrieve resourses individually
++	   pdState.power = Boolean.valueOf(readString(registration,33000,0,30000));
++	   pdState.presence = Boolean.valueOf(readString(registration, 33000,0,30001));
++
++           presenceStates.put(registration.getEndpoint(), pdState);
++           // Observe dynamic fields
++           try {
++             System.out.println(">>ObserveRequest created << ");
++	     ObserveResponse pdResponse = lwServer.send(registration, new ObserveRequest(33000,0,30001), 3000);
++             System.out.println(">>ObserveRequest sent << ");
++             if (pdResponse == null) {
++                System.out.println(">> NULL <<");
++             }
++           }
++           catch (Exception e) {
++                System.out.println("Something wrong with observing presence detector.");
++           }
++        }
++        if (supportedObject.get(33001) != null) {
++	    System.out.println("Luminaire");
++           LuminaireState lmState = new LuminaireState();
++           lmState.latitude = latitude;
++           lmState.longitude = longitude;
++           lmState.peakpower = 0;
++           lmState.type = "LED";
++           lmState.type = readString(registration, 33001,0,30002);
++           lmState.peakpower = readInteger(registration, 33001,0,30003);
++           lmState.dimlevel = readInteger(registration, 33001,0,30004);
++           luminaireStates.put(registration.getEndpoint(), lmState);
++	   maxPowerUsage += lmState.peakpower;
++	   // TODO: since maxPowerUsage is increased, dim levels of all
++	   //       luminaires might have to be adjusted.
++	   setDimLevels();
++           // Observe relevant luminaire information.
++           try {
++	       System.out.println(">>ObserveRequest created << ");
++	       ObserveResponse coResponse = lwServer.send(registration, new ObserveRequest(33001, 0, 30000), 1000);
++	       System.out.println(">>ObserveRequest sent << ");
++
++	       if (coResponse == null) {
++		   System.out.println(">>ObserveRequest null << ");
++	       }
++           }
++           catch (Exception e) {
++                System.out.println("Something wrong with observing luminaire power.");
++           }
++        }
++        if (supportedObject.get(33002) != null) {
++	    // Demand Response sets the power budget.
++	    System.out.println("Demand Response found");
++
++           powerBudget = readInteger(registration, 33002,0,30004);
++	   System.out.println("Power budget is " + powerBudget);
++           // Observe relevant luminaire information.
++           try {
++	       System.out.println(">>ObserveRequest created << ");
++	       ObserveResponse coResponse = lwServer.send(registration, new ObserveRequest(33002, 0, 30005), 1000);
++	       System.out.println(">>ObserveRequest sent << ");
++	       if (coResponse == null) {
++		   System.out.println(">>ObserveRequest null << ");
++	       }
++          }
++           catch (Exception e) {
++                System.out.println("Something wrong with observing demand response.");
++           }
++        }
++        // Read current status (location latitude and longitude, counter, ..)
++        // Create observations of status, counter license plate.
++        // Update list of known objects.
++        // Update webpage.
++        // Update 8x8 LED matrix.
++        ShowSystemState();
++    }
++
++    public static void handleDeregistration(Registration registration)
++    {
++        // Update list of known objects.
++        // Update webpage
++        // Update 8x8 LED matrix
++        String rid = registration.getEndpoint();
++        Boolean changed = false;
++        if (luminaireStates.containsKey(rid)) {
++	    // Substract luminaire peak value.
++	    LuminaireState lmState = luminaireStates.get(rid);
++	    maxPowerUsage -= lmState.peakpower; 
++	    System.out.println("Luminaire removed. Max usage is " + maxPowerUsage + ", power budget is " + powerBudget);
++	    luminaireStates.remove(rid);
++	    changed = true;
++        }
++        if (presenceStates.containsKey(rid)) {
++           presenceStates.remove(rid);
++           changed = true;
++        }
++        if (changed) {
++	    setDimLevels();
++	    // Update webpage.
++          ShowSystemState();
++        }
++    }
++
++    public static void handleObserveResponse(SingleObservation observation, Registration registration, ObserveResponse response)
++    {
++        if (registration != null && observation != null && response != null) {
++        // Check whether registration is known in list of known objects.
++           String rid = registration.getEndpoint();
++           String obsPath = observation.getPath().toString();
++           Boolean changed = false;
++	   System.out.println(">>ObserveResponse " + obsPath);
++           if (luminaireStates.containsKey(rid)) {
++              //
++              LuminaireState lmState = luminaireStates.get(rid);
++              if (obsPath.equals("/33001/0/30000")) {
++		  // Luminaire turned on or off.
++              }
++           }
++           if (presenceStates.containsKey(rid)) {
++                PresenceDetectorState pdState = presenceStates.get(rid);
++                if (obsPath.equals("/33000/0/30001")) {
++                   String csValue = ((LwM2mResource)response.getContent()).getValue().toString();
++                   try {
++                      boolean ciValue = Boolean.valueOf(csValue);
++                      if (ciValue != pdState.presence) {
++                        pdState.presence = ciValue;
++                        presenceStates.put(rid,pdState);
++			// Use luminaireStates to adjust power.
++			// When there are multiple luminaires, ...
++			setLuminaires(ciValue);
++                        changed = true;
++                      }
++                   }
++                   catch (Exception e) {
++                        System.out.println("Exception in reading presence detector:" + e.getMessage());
++                   }
++                }
++                if (obsPath.equals("/33000/0/30000")) {
++                   String powValue = ((LwM2mResource)response.getContent()).getValue().toString();
++		   try {
++		       boolean powBool = Boolean.parseBoolean(powValue);
++		       if (powBool != pdState.power) {
++			   pdState.power = powBool;
++			   presenceStates.put(rid,pdState);
++			   changed = true;
++		       }
++		   }
++                   catch (Exception e) {
++                        System.out.println("Exception in reading presence detector:" + e.getMessage());
++                   }
++                }
++           }
++	   if (obsPath.equals("/33002/0/30005")) {
++	       String powValue = ((LwM2mResource)response.getContent()).getValue().toString();
++	       try {
++		   int newPower = Integer.parseInt(powValue);
++		   if (newPower != powerBudget) {
++		       powerBudget = newPower;
++		       changed = true;
++		       System.out.println("Power budget is " + powerBudget + ",  max usage is " + maxPowerUsage);
++		       // Use luminaireStates to adjust all the dim levels.
++		   }
++	       }
++	       catch (Exception e) {
++		   System.out.println("Exception in reading demand response:" + e.getMessage());
++	       }
++
++	   }
++        // Update status of parking lot (available, reserved, occupied)
++        // Update webpage
++        // Update 8x8 LED matrix
++           if (changed) {
++	       setDimLevels();
++                ShowSystemState();
++           }
++        }
++    }
++    */
++ 
+     private void processDeviceResponse(HttpServletRequest req, HttpServletResponse resp, LwM2mResponse cResponse)
+             throws IOException {
+         if (cResponse == null) {
+diff --git a/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/EventServlet.java b/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/EventServlet.java
+index d4df0de9..538508e2 100644
+--- a/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/EventServlet.java
++++ b/leshan-server-demo/src/main/java/org/eclipse/leshan/server/demo/servlet/EventServlet.java
+@@ -64,6 +64,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
+ 
+ import jline.internal.Log;
+ 
++// 2IMN15:  import access class
++import org.course.IoT;
++
+ public class EventServlet extends EventSourceServlet {
+ 
+     private static final String EVENT_DEREGISTRATION = "DEREGISTRATION";
+@@ -100,6 +103,8 @@ public class EventServlet extends EventSourceServlet {
+         @Override
+         public void registered(Registration registration, Registration previousReg,
+                 Collection<Observation> previousObservations) {
++	    // 2IMN15: Inform about registration.
++	    IoT.handleRegistration(registration);
+             String jReg = null;
+             try {
+                 jReg = EventServlet.this.mapper.writeValueAsString(registration);
+@@ -127,6 +132,8 @@ public class EventServlet extends EventSourceServlet {
+         @Override
+         public void unregistered(Registration registration, Collection<Observation> observations, boolean expired,
+                 Registration newReg) {
++	    // 2IMN15: Inform about deregistration.
++	    IoT.handleDeregistration(registration);
+             String jReg = null;
+             try {
+                 jReg = EventServlet.this.mapper.writeValueAsString(registration);
+@@ -175,6 +182,9 @@ public class EventServlet extends EventSourceServlet {
+             }
+ 
+             if (registration != null) {
++		// 2IMN15: Inform about observe notification.
++		IoT.handleObserveResponse(observation, registration,response);
++
+                 String data = new StringBuilder("{\"ep\":\"") //
+                         .append(registration.getEndpoint()) //
+                         .append("\",\"kind\":\"single\"") //
+diff --git a/pom.xml b/pom.xml
+index 8299906f..fc152d00 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -98,6 +98,11 @@ Contributors:
+     <!-- demos -->
+     <module>leshan-core-demo</module>
+     <module>leshan-client-demo</module>
++    <module>iot-client</module>
++    <module>energy-market</module>
++    <module>room-control</module>
++    <module>energy-control</module>
++    <module>flow-control</module>
+     <module>leshan-server-core-demo</module>
+     <module>leshan-server-demo</module>
+     <module>leshan-bsserver-demo</module>

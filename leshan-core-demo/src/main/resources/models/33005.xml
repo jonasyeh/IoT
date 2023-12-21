@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LWM2M  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openmobilealliance.org/tech/profiles/LWM2M.xsd">
+  <Object ObjectType="MODefinition">
+    <Name>Battery</Name>
+    <Description1>Battery</Description1>
+    <ObjectID>33005</ObjectID>
+    <ObjectURN>urn:oma:lwm2m:x:33005</ObjectURN>
+    <LWM2MVersion>1.0</LWM2MVersion>
+                <ObjectVersion>1.0</ObjectVersion>
+    <MultipleInstances>Single</MultipleInstances>
+    <Mandatory>Mandatory</Mandatory>
+    <Resources>
+      <Item ID="30012">
+        <Name>Buffered energy</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>kWh</Units>
+        <Description>Currently stored energy in the battery</Description>
+      </Item>
+    </Resources>
+    <Description2>Perhaps the capacity of the battery should be included</Description2>
+  </Object>
+</LWM2M>

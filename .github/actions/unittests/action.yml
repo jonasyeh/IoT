@@ -1,0 +1,26 @@
+name: "Unit Tests "
+description: "Run Unit Tests with Maven"
+
+inputs:
+  build_status_filename:  
+    description: 'Path to build status properties file'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+  - name: Run Integration Tests 
+    id: main
+    shell: bash
+    run: mvn -B surefire:test '-Dtest=!org.eclipse.leshan.integration.tests.**' -DfailIfNoTests=false -Dskip.yarn
+
+    # Store Step status in Build Status Properties file
+  - name: Store Step Status
+    if: always()
+    # unstrusted action use commit ID instead of version 
+    uses: GuillaumeFalourd/write-java-properties-file@c6762204aa02d62718ed285bca4cbcc400c65a10 #v1
+    with:
+      file_path: ${{inputs.build_status_filename}}
+      property: ${{github.action}}
+      value: ${{steps.main.outcome}}

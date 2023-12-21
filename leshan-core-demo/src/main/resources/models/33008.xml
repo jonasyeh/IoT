@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<LWM2M  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openmobilealliance.org/tech/profiles/LWM2M.xsd">
+  <Object ObjectType="MODefinition">
+    <Name>Offer</Name>
+    <Description1>Offer</Description1>
+    <ObjectID>33008</ObjectID>
+    <ObjectURN>urn:oma:lwm2m:x:33008</ObjectURN>
+    <LWM2MVersion>1.0</LWM2MVersion>
+                <ObjectVersion>1.0</ObjectVersion>
+    <MultipleInstances>Multiple</MultipleInstances>
+    <Mandatory>Mandatory</Mandatory>
+    <Resources>
+      <Item ID="30030">
+        <Name>EnergyControl Name</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>String</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units></Units>
+        <Description>Name of the energy control that create the offer</Description>
+      </Item>
+      <Item ID="30031">
+        <Name>Offer state</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>String</Type>
+        <RangeEnumeration>Init, Success, Failure</RangeEnumeration>
+        <Units></Units>
+        <Description>State of the offer</Description>
+      </Item>
+      <Item ID="30032">
+        <Name>Total transferable energy amount</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>kWh</Units>
+        <Description>Total transferable energy amount</Description>
+      </Item>
+      <Item ID="30033">
+        <Name>Energy to be transferred</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>kWh</Units>
+        <Description>Energy to be transferred</Description>
+      </Item>
+      <Item ID="30034">
+        <Name>Price per energy unit</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>Euro</Units>
+        <Description>Price per energy unit</Description>
+      </Item>
+    </Resources>
+    <Description2></Description2>
+  </Object>
+</LWM2M>
+
+

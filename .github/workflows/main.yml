@@ -1,0 +1,148 @@
+# This workflow validate Leshan Contribution. 
+# We execute each step of the build separatly to be able to provide some feedback on failure as a PR comment.
+# 
+# This jobs will be executed automatically on untrusted contribution and so have very limited right. 
+# It will just store some very validation status in a "build_status.properties" file as workflow artifact.
+#
+# Then this artifact will be reused by a priviledged job to add comment to the PR (See "Comment Pull Request" workflow)
+# 
+# See: 
+#  - https://github.com/eclipse/leshan/issues/1314
+#  - https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+
+name: Check Pull Request
+
+permissions: {} # Remove all permissions as this workflow which run untrusted code from PR
+
+on:
+  pull_request:
+    branches: [ "master" ]
+    types: [synchronize, opened, reopened, ready_for_review]
+
+env:
+  build_status_filename: "build_status"
+  pr_id_key: "pullrequestid"
+  run_id_key: "runid"
+  build_status_key: "buildstatus"
+
+jobs:
+  build:
+
+    name : Code Check
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'adopt'
+        cache: maven
+
+    # ------------- Begin of : Build Steps ------------- 
+    - name: Check No Merge Commit
+      id: nomerge
+      uses: ./.github/actions/nomerge
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: POM Format Check
+      id: sortpom
+      if: always()
+      uses: ./.github/actions/sortpom
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Code Format Check
+      id: formatter
+      if: always()
+      uses: ./.github/actions/formatter
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Build
+      id: build
+      if: always()
+      uses: ./.github/actions/build
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Java Import Check
+      id: sortimport
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/sortimport
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Code Style Check
+      id: checkstyle
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/checkstyle
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+
+    - name: Check Android API Compliance
+      id: androidcheck
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/androidcheck
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Check Semantic Versioning Compliance
+      id: semvercheck
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/semvercheck
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Generate Javadoc
+      id: javadoc
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/javadoc
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+      
+    - name: Unit Tests
+      id: unittests
+      if: ${{ always() &&  steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/unittests
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    - name: Integration Tests
+      id: integrationtests
+      if: ${{ always() && steps.build.conclusion == 'success' }}
+      uses: ./.github/actions/integrationtests
+      with:
+         build_status_filename: ${{env.build_status_filename}}
+
+    # ------------- End of :  Build Steps -------------
+
+    # Store Data to be able to add comment in "Comment Pull Request"  workflow
+    # See : https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+    - name: Store Variables for "Comment Pull Request" Workflow
+      if: always()
+      # unstrusted action use commit ID instead of version 
+      uses: GuillaumeFalourd/write-java-properties-file@c6762204aa02d62718ed285bca4cbcc400c65a10 #v1
+      with:
+        file_path: ${{env.build_status_filename}}
+        property: |
+          ${{env.pr_id_key}}
+          ${{env.run_id_key}}
+          ${{env.build_status_key}}
+        value: |
+          ${{ github.event.number }}
+          ${{ github.run_id }}
+          ${{ job.status }}
+
+    - name: Upload Build Status File for "Comment Pull Request" Workflow
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+       name: ${{env.build_status_filename}}
+       path: ${{env.build_status_filename}}

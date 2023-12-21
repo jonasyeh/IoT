@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LWM2M  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://openmobilealliance.org/tech/profiles/LWM2M.xsd">
+  <Object ObjectType="MODefinition">
+    <Name>Budget Allocation</Name>
+    <Description1>Budget Allocation</Description1>
+    <ObjectID>33003</ObjectID>
+    <ObjectURN>urn:oma:lwm2m:x:33003</ObjectURN>
+    <LWM2MVersion>1.0</LWM2MVersion>
+                <ObjectVersion>1.0</ObjectVersion>
+    <MultipleInstances>Single</MultipleInstances>
+    <Mandatory>Mandatory</Mandatory>
+    <Resources>
+      <Item ID="30009">
+        <Name>Budget amount</Name>
+        <Operations>RW</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>Euro</Units>
+        <Description>Budget that can be used at the market place</Description>
+      </Item>
+      <Item ID="30010">
+        <Name>Price</Name>
+        <Operations>R</Operations>
+        <MultipleInstances>Single</MultipleInstances>
+        <Mandatory>Mandatory</Mandatory>
+        <Type>Integer</Type>
+        <RangeEnumeration></RangeEnumeration>
+        <Units>Euro/kWh</Units>
+        <Description>Maximum price willing to pay</Description>
+      </Item>
+    </Resources>
+    <Description2></Description2>
+  </Object>
+</LWM2M>
+
